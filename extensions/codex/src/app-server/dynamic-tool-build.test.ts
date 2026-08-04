@@ -18,7 +18,6 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
 import {
-  CODEX_APP_SERVER_NATIVE_TOOL_CAPABILITY,
   buildDynamicTools,
   disableCodexPluginThreadConfig,
   resolveCodexAppServerExecutionCwd,
@@ -35,6 +34,8 @@ import {
 import { createCodexDynamicToolBridge } from "./dynamic-tools.js";
 import { flattenCodexDynamicToolFunctions } from "./protocol.js";
 import { createCodexTestModel } from "./test-support.js";
+
+const CODEX_APP_SERVER_NATIVE_TOOL_CAPABILITY = "__openclaw_internal_codex_native_surface__";
 
 const hoisted = vi.hoisted(() => ({
   resolveWebSearchToolPolicy: vi.fn(),
