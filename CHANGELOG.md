@@ -64,6 +64,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Talk realtime barge-in:** make `talk.session.cancelOutput` stop provider/playback audio without aborting the active Talk turn or its agent consult; `talk.session.cancelTurn` remains the explicit full-turn cancellation path.
 - **Talk private realtime model discovery:** keep private GPT-Live preview ids out of normal catalog suggestions while preserving exact explicitly configured models in `talk.catalog` for experimental team access.
 - **Guided onboarding skip-UI routing:** keep `openclaw onboard --skip-ui` and `openclaw setup --skip-ui` on guided onboarding while skipping both browser and terminal handoffs, instead of silently switching to the classic wizard. Thanks @shakkernerd.
 - **Telegram durable ingress:** preserve pre-identity control-lane ownership during replay and attempt each drain snapshot row only once per pass, preventing targeted commands from spinning the spool and blocking polling shutdown.

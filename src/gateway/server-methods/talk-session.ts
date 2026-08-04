@@ -35,6 +35,7 @@ import {
   type TalkHandoffTurnResult,
 } from "../talk-handoff.js";
 import {
+  cancelTalkRealtimeRelayOutput,
   cancelTalkRealtimeRelayTurn,
   createTalkRealtimeRelaySession,
   sendTalkRealtimeRelayAudio,
@@ -589,9 +590,10 @@ export const talkSessionHandlers: GatewayRequestHandlers = {
         return;
       }
       const connId = requireUnifiedTalkSessionConn(session, client?.connId);
-      cancelTalkRealtimeRelayTurn({
+      cancelTalkRealtimeRelayOutput({
         relaySessionId: session.relaySessionId,
         connId,
+        turnId: normalizeOptionalString(params.turnId),
         reason: normalizeOptionalString(params.reason) ?? "output-cancelled",
       });
       respondOk(respond);
