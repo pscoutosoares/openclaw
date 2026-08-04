@@ -198,6 +198,34 @@ describe("qa scenario catalog channel contracts", () => {
     expect(config?.requiredChannelDriver).toBe("crabline");
   });
 
+  it("checks Telegram tools content only after capturing the scenario-owned reply", () => {
+    const scenario = requireFlowScenario(readQaScenarioById("telegram-tools-compact-command"));
+    const actions = scenario.execution.flow?.steps.flatMap((step) => step.actions) ?? [];
+    const replyWaitIndex = actions.findIndex(
+      (action) => typeof action === "object" && action !== null && "waitForOutbound" in action,
+    );
+    const inventoryAssertIndex = actions.findIndex(
+      (action) => typeof action === "object" && action !== null && "assert" in action,
+    );
+    const replyWait = actions[replyWaitIndex];
+    const inventoryAssert = actions[inventoryAssertIndex];
+
+    expect(replyWait).toMatchObject({
+      waitForOutbound: {
+        conversation: { id: "telegram-command-room", kind: "channel" },
+        sinceIndex: { ref: "startIndex" },
+      },
+      saveAs: "firstReply",
+    });
+    expect(replyWait).not.toHaveProperty("waitForOutbound.textIncludes");
+    expect(inventoryAssert).toMatchObject({
+      assert: {
+        expr: expect.stringContaining("config.expectedAny.every"),
+      },
+    });
+    expect(inventoryAssertIndex).toBeGreaterThan(replyWaitIndex);
+  });
+
   it("rejects malformed string matcher lists before running a flow", () => {
     expect(() =>
       validateQaScenarioExecutionConfig({

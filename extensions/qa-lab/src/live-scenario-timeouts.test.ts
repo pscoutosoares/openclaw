@@ -330,6 +330,22 @@ function runCompletionPolicyFlow(
 }
 
 describe("live subagent scenario timeouts", () => {
+  it("fails Telegram tools diagnostics without retrying or extending the reply wait", () => {
+    const scenario = requireFlowScenario(readQaScenarioById("telegram-tools-compact-command"));
+    const replyWait = scenario.execution.flow?.steps
+      .flatMap((step) => step.actions)
+      .find(
+        (action) => typeof action === "object" && action !== null && "waitForOutbound" in action,
+      );
+
+    expect(scenario.execution.retryCount).toBe(0);
+    expect(replyWait).toMatchObject({
+      waitForOutbound: {
+        timeoutMs: 60_000,
+      },
+    });
+  });
+
   it.each([
     {
       id: "issue-109025-completion-policy-live",
