@@ -342,9 +342,9 @@ export function resolveConfiguredModelCompat(params: {
 }
 
 /** Resolves the grouped effective tool inventory and user-visible filtering notices. */
-export function resolveEffectiveToolInventory(
+export async function resolveEffectiveToolInventory(
   params: ResolveEffectiveToolInventoryParams,
-): EffectiveToolInventoryResult {
+): Promise<EffectiveToolInventoryResult> {
   const agentId =
     params.agentId?.trim() ||
     resolveSessionAgentId({ sessionKey: params.sessionKey, config: params.cfg });
@@ -356,7 +356,7 @@ export function resolveEffectiveToolInventory(
           modelApi: params.modelApi ?? params.runtimeModel?.api,
           runtimeModel: params.runtimeModel,
         }
-      : resolveEffectiveToolInventoryRuntimeModelContext({
+      : await resolveEffectiveToolInventoryRuntimeModelContextAsync({
           cfg: params.cfg,
           agentId,
           agentDir,

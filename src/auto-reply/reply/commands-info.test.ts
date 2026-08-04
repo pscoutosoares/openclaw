@@ -559,11 +559,12 @@ function makeDefaultInventory(): EffectiveToolInventoryResult {
 }
 
 const toolsTestState = vi.hoisted(() => {
-  const defaultResolveTools = (): EffectiveToolInventoryResult => makeDefaultInventory();
+  const defaultResolveTools = async (): Promise<EffectiveToolInventoryResult> =>
+    makeDefaultInventory();
 
   return {
     resolveToolsImpl: defaultResolveTools,
-    resolveToolsMock: vi.fn((..._args: unknown[]) => defaultResolveTools()),
+    resolveToolsMock: vi.fn(async (..._args: unknown[]) => await defaultResolveTools()),
     threadingContext: {
       currentChannelId: "channel-123",
       currentMessageId: "message-456",
@@ -587,10 +588,13 @@ vi.mock("./reply-threading.js", () => ({
 let buildCommandTestParamsImpl: typeof import("./commands.test-harness.js").buildCommandTestParams;
 let handleToolsCommandImpl: typeof import("./commands-info.js").handleToolsCommand;
 
-async function loadToolsHarness(options?: { resolveTools?: () => EffectiveToolInventoryResult }) {
-  toolsTestState.resolveToolsImpl = options?.resolveTools ?? (() => makeDefaultInventory());
-  toolsTestState.resolveToolsMock.mockImplementation((..._args: unknown[]) =>
-    toolsTestState.resolveToolsImpl(),
+async function loadToolsHarness(options?: {
+  resolveTools?: () => EffectiveToolInventoryResult | Promise<EffectiveToolInventoryResult>;
+}) {
+  toolsTestState.resolveToolsImpl =
+    options?.resolveTools ?? (async () => await Promise.resolve(makeDefaultInventory()));
+  toolsTestState.resolveToolsMock.mockImplementation(
+    async (..._args: unknown[]) => await toolsTestState.resolveToolsImpl(),
   );
 
   return {
@@ -625,7 +629,7 @@ describe("handleToolsCommand", () => {
   beforeEach(() => {
     vi.mocked(resolveSessionAgentId).mockReturnValue("main");
     toolsTestState.resolveToolsMock.mockReset();
-    toolsTestState.resolveToolsImpl = () => makeDefaultInventory();
+    toolsTestState.resolveToolsImpl = async () => makeDefaultInventory();
     setActivePluginRegistry(createTestRegistry([]));
   });
 
@@ -848,7 +852,7 @@ describe("handleToolsCommand", () => {
 
   it("returns a concise fallback error on effective inventory failures", async () => {
     const { buildCommandTestParamsLocal, handleToolsCommandLocal } = await loadToolsHarness({
-      resolveTools: () => {
+      resolveTools: async () => {
         throw new Error("boom");
       },
     });

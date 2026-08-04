@@ -354,7 +354,7 @@ async function resolveBaseToolsEffectiveInventory(
   });
   return {
     runtimeModelContext,
-    inventory: resolveEffectiveToolInventory({
+    inventory: await resolveEffectiveToolInventory({
       cfg: context.cfg,
       agentId: context.agentId,
       agentDir,

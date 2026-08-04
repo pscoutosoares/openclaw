@@ -36,18 +36,18 @@ const BARE_SESSION_RESET_PROMPT_BOOTSTRAP_LIMITED = [
   "Do not mention internal steps, files, tools, or reasoning.",
 ].join(" ");
 
-export function resolveBareResetBootstrapFileAccess(params: {
+export async function resolveBareResetBootstrapFileAccess(params: {
   cfg?: OpenClawConfig;
   agentId?: string;
   sessionKey?: string;
   workspaceDir?: string;
   modelProvider?: string;
   modelId?: string;
-}): boolean {
+}): Promise<boolean> {
   if (!params.cfg) {
     return false;
   }
-  const inventory = resolveEffectiveToolInventory({
+  const inventory = await resolveEffectiveToolInventory({
     cfg: params.cfg,
     agentId: params.agentId,
     sessionKey: params.sessionKey,
@@ -64,7 +64,7 @@ export async function resolveBareSessionResetPromptState(params: {
   nowMs?: number;
   isPrimaryRun?: boolean;
   isCanonicalWorkspace?: boolean;
-  hasBootstrapFileAccess?: boolean | (() => boolean);
+  hasBootstrapFileAccess?: boolean | (() => boolean | Promise<boolean>);
 }): Promise<{
   bootstrapMode: BootstrapMode;
   prompt: string;
@@ -75,7 +75,7 @@ export async function resolveBareSessionResetPromptState(params: {
     : false;
   const hasBootstrapFileAccess = bootstrapPending
     ? typeof params.hasBootstrapFileAccess === "function"
-      ? params.hasBootstrapFileAccess()
+      ? await params.hasBootstrapFileAccess()
       : (params.hasBootstrapFileAccess ?? true)
     : true;
   const bootstrapMode = resolveBootstrapMode({

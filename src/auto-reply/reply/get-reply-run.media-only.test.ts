@@ -29,6 +29,10 @@ import {
 import { createReplyOperation, getActiveReplyRunCount } from "./reply-run-registry.js";
 import { testing as replyRunTesting } from "./reply-run-registry.test-support.js";
 import { routeReply } from "./route-reply.runtime.js";
+import {
+  resolveBareResetBootstrapFileAccess,
+  resolveBareSessionResetPromptState,
+} from "./session-reset-prompt.js";
 import { drainFormattedSystemEvents } from "./session-system-events.js";
 import { buildChannelSourceTurnId } from "./source-turn-id.js";
 import { resolveTypingMode } from "./typing-mode.js";
@@ -147,7 +151,7 @@ vi.mock("./session-system-events.js", () => ({
 }));
 
 vi.mock("./session-reset-prompt.js", () => ({
-  resolveBareResetBootstrapFileAccess: vi.fn().mockReturnValue(false),
+  resolveBareResetBootstrapFileAccess: vi.fn().mockResolvedValue(false),
   resolveBareSessionResetPromptState: vi.fn().mockResolvedValue({
     bootstrapMode: "none",
     prompt: "A new session was started via /new or /reset.",
@@ -3191,6 +3195,42 @@ describe("runPreparedReply media-only handling", () => {
       expect(call?.followupRun.transcriptPrompt).not.toContain("Sender:");
     },
   );
+
+  it("propagates async reset file access without duplicate inventory lookup", async () => {
+    vi.mocked(resolveBareResetBootstrapFileAccess).mockResolvedValueOnce(false);
+    vi.mocked(resolveBareSessionResetPromptState).mockImplementationOnce(async (params) => {
+      expect(typeof params.hasBootstrapFileAccess).toBe("function");
+      expect(await (params.hasBootstrapFileAccess as () => Promise<boolean>)()).toBe(false);
+      return {
+        bootstrapMode: "limited",
+        prompt: "A new session was started via /new or /reset.",
+        shouldPrependStartupContext: false,
+      };
+    });
+
+    await runPreparedReply(
+      baseParams({
+        ctx: {
+          ...createInboundTurn("/new", "webchat", "direct"),
+        },
+        sessionCtx: {
+          ...createSessionTurn("", "webchat", "direct"),
+        },
+        command: {
+          surface: "webchat",
+          channel: "webchat",
+          isAuthorizedSender: true,
+          abortKey: "session-key",
+          ownerList: [],
+          senderIsOwner: true,
+          rawBodyNormalized: "/new",
+          commandBodyNormalized: "/new",
+        } as never,
+      }),
+    );
+
+    expect(resolveBareResetBootstrapFileAccess).toHaveBeenCalledTimes(1);
+  });
 
   it("keeps reset user notes visible while hiding startup instructions", async () => {
     await runPreparedReply(

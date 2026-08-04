@@ -55,6 +55,17 @@ describe("resolveBareSessionResetPromptState", () => {
     expect(prompt).not.toContain("Please read BOOTSTRAP.md from the workspace now");
   });
 
+  it("awaits async bootstrap file access before selecting reset mode", async () => {
+    const workspaceDir = await makeBootstrapPendingWorkspace();
+    const prompt = await resolveResetPrompt({
+      workspaceDir,
+      hasBootstrapFileAccess: async () => false,
+    });
+
+    expect(prompt).toContain("cannot safely complete the full BOOTSTRAP.md workflow here");
+    expect(prompt).not.toContain("Please read BOOTSTRAP.md from the workspace now");
+  });
+
   it("appends current time line so agents know the date", async () => {
     const cfg = {
       agents: { defaults: { userTimezone: "America/New_York", timeFormat: "12" } },

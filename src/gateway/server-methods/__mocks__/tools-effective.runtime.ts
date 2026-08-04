@@ -14,7 +14,7 @@ export { loadSessionEntryReadOnly, resolveSessionModelRef } from "../../session-
 
 export const toolsEffectiveGlobalAgentRuntimeMocks = {
   resolveEffectiveToolInventory: vi.fn(
-    (params: { agentId: string; modelProvider?: string; modelId?: string }) => ({
+    async (params: { agentId: string; modelProvider?: string; modelId?: string }) => ({
       agentId: params.agentId,
       profile: "coding",
       groups: [
