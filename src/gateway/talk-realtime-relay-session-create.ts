@@ -33,6 +33,7 @@ import {
   abortRelayAgentRuns,
   cancelTalkRealtimeRelayProviderToolCall,
   closeRelaySession,
+  detachRelayAgentRuns,
   enforceRelaySessionLimits,
   pruneInactiveRelayAgentRuns,
   registerTalkRealtimeRelayAgentRun,
@@ -494,7 +495,7 @@ export function createTalkRealtimeRelaySession(
       relaySessions.delete(relaySessionId);
       forgetUnifiedTalkSession(relaySessionId);
       clearTimeout(active.cleanupTimer);
-      abortRelayAgentRuns(active, "relay-closed");
+      detachRelayAgentRuns(active);
       void closeRelayVoiceSession(active);
       if (!ready && !failureEmitted) {
         const issue = realtimeRelayIssue({

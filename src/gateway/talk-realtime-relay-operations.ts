@@ -79,6 +79,12 @@ export function abortRelayAgentRuns(session: RelaySession, reason: string): void
   session.activeAgentToolCalls.clear();
 }
 
+/** Releases relay-local correlation without cancelling durable voice-bound agent runs. */
+export function detachRelayAgentRuns(session: RelaySession): void {
+  session.activeAgentRuns.clear();
+  session.activeAgentToolCalls.clear();
+}
+
 export function pruneInactiveRelayAgentRuns(session: RelaySession): number {
   for (const runId of session.activeAgentRuns.keys()) {
     if (!session.context.chatAbortControllers.has(runId)) {
@@ -98,7 +104,7 @@ export function closeRelaySession(session: RelaySession, reason: "completed" | "
   relaySessions.delete(session.id);
   forgetUnifiedTalkSession(session.id);
   clearTimeout(session.cleanupTimer);
-  abortRelayAgentRuns(session, reason === "error" ? "relay-error" : "relay-closed");
+  detachRelayAgentRuns(session);
   try {
     session.bridge.close();
   } finally {
@@ -599,7 +605,9 @@ export function resetTalkRealtimeRelayContinuity(
   session.pendingWorkingToolResults.clear();
   session.forcedTerminalProviderResults.clear();
   session.harness.forcedConsults.clear();
-  abortRelayAgentRuns(session, reason);
+  // The provider generation no longer owns these calls, but the durable voice
+  // session still owns any running consult and its eventual mutation evidence.
+  session.activeAgentToolCalls.clear();
   const turnId = session.harness.talk.activeTurnId;
   session.harness.flushOutput(noFallbackRelayOutputFlush);
   session.harness.finishOutputAudio(reason);

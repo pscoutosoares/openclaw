@@ -64,6 +64,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Talk realtime consult lifecycle:** keep durable voice-bound agent consults running when their browser/provider relay closes or resets continuity, while retiring only the obsolete provider-call correlation.
 - **Talk realtime barge-in:** make `talk.session.cancelOutput` stop provider/playback audio without aborting the active Talk turn or its agent consult; `talk.session.cancelTurn` remains the explicit full-turn cancellation path.
 - **Talk private realtime model discovery:** keep private GPT-Live preview ids out of normal catalog suggestions while preserving exact explicitly configured models in `talk.catalog` for experimental team access.
 - **Guided onboarding skip-UI routing:** keep `openclaw onboard --skip-ui` and `openclaw setup --skip-ui` on guided onboarding while skipping both browser and terminal handoffs, instead of silently switching to the classic wizard. Thanks @shakkernerd.
