@@ -1809,12 +1809,6 @@ async function buildResponsesPayload(
     if (memoryToolUnavailable) {
       return buildAssistantEvents("NONE");
     }
-    const transcriptOrbitCode = extractOrbitCode(scenarioToolOutput);
-    if (transcriptOrbitCode) {
-      return buildAssistantEvents(
-        `Protocol note: I checked memory in-thread and the hidden thread codename is ${transcriptOrbitCode}.`,
-      );
-    }
     const results = Array.isArray(toolJson?.results)
       ? (toolJson.results as Array<Record<string, unknown>>)
       : [];
@@ -1834,6 +1828,12 @@ async function buildResponsesPayload(
         from,
         lines: 4,
       });
+    }
+    const transcriptOrbitCode = extractOrbitCode(scenarioToolOutput);
+    if (transcriptOrbitCode) {
+      return buildAssistantEvents(
+        `Protocol note: I checked memory in-thread and the hidden thread codename is ${transcriptOrbitCode}.`,
+      );
     }
     return buildAssistantEvents("NONE");
   }
