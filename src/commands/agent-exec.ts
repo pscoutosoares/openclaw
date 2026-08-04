@@ -61,6 +61,8 @@ export type AgentExecEnvelope = {
   codeModeEngaged?: boolean;
   assistantTurns?: number;
   bridgeCalls?: NonNullable<NonNullable<EmbeddedAgentRunMeta["agentMeta"]>["bridgeCalls"]>;
+  codeModeStats?: NonNullable<NonNullable<EmbeddedAgentRunMeta["agentMeta"]>["codeModeStats"]>;
+  runAttempts?: NonNullable<NonNullable<EmbeddedAgentRunMeta["agentMeta"]>["runAttempts"]>;
   toolSummary?: NonNullable<EmbeddedAgentRunMeta["toolSummary"]>;
   model: string | null;
   provider: string | null;
@@ -246,6 +248,8 @@ export function classifyAgentExecResult(
       ? { assistantTurns: agentMeta.assistantTurns }
       : {}),
     ...(agentMeta?.bridgeCalls ? { bridgeCalls: agentMeta.bridgeCalls } : {}),
+    ...(agentMeta?.codeModeStats ? { codeModeStats: agentMeta.codeModeStats } : {}),
+    ...(agentMeta?.runAttempts ? { runAttempts: agentMeta.runAttempts } : {}),
     ...(meta.toolSummary ? { toolSummary: meta.toolSummary } : {}),
     model: agentMeta?.model ?? null,
     provider: agentMeta?.provider ?? null,

@@ -10,6 +10,7 @@ import { toCodeModeJsonSafe } from "./code-mode-json.js";
 import type { CodeModeNamespaceRuntime } from "./code-mode-namespaces.js";
 import type { PendingBridgeRequest, SettledBridgeRequest } from "./code-mode-runtime.js";
 import { readCodeModeSkill } from "./code-mode-skills.js";
+import { ensureCodeModeStats } from "./code-mode-stats.js";
 import type { AgentToolUpdateCallback } from "./runtime/index.js";
 import { getSwarmRunByLaunchReplayKey, initSubagentRegistry } from "./subagent-registry.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
@@ -389,6 +390,11 @@ export async function runBridgeRequest(params: {
   signal?: AbortSignal;
   onUpdate?: AgentToolUpdateCallback;
 }): Promise<SettledBridgeRequest> {
+  const stats = ensureCodeModeStats(params.ctx.catalogRef);
+  if (stats) {
+    const method = params.request.method;
+    stats.bridgeCalls[method] = (stats.bridgeCalls[method] ?? 0) + 1;
+  }
   try {
     const values = Array.isArray(params.request.args) ? params.request.args : [];
     let value: unknown;

@@ -80,6 +80,7 @@ type CellFailureCategory =
 export type CodeModeMatrixCellResult = {
   assistantTurns?: number;
   bridgeCalls?: AgentExecEnvelope["bridgeCalls"];
+  codeModeStats?: AgentExecEnvelope["codeModeStats"];
   buildSha256: string;
   codeModeEngaged: boolean | null;
   costUsd?: number;
@@ -104,6 +105,7 @@ export type CodeModeMatrixCellResult = {
   };
   passed: boolean;
   repetition: number;
+  runAttempts?: AgentExecEnvelope["runAttempts"];
   sourceDirty: boolean;
   sourcePatchSha256: string | null;
   status: AgentExecEnvelope["status"];
@@ -1052,6 +1054,7 @@ async function runMatrixCell(params: RunCellParams): Promise<CodeModeMatrixCellR
         ? { assistantTurns: command.envelope.assistantTurns }
         : {}),
       ...(command.envelope.bridgeCalls ? { bridgeCalls: command.envelope.bridgeCalls } : {}),
+      ...(command.envelope.codeModeStats ? { codeModeStats: command.envelope.codeModeStats } : {}),
       buildSha256: params.buildSha256,
       codeModeEngaged: command.envelope.codeModeEngaged ?? null,
       ...(command.envelope.costUsd !== undefined ? { costUsd: command.envelope.costUsd } : {}),
@@ -1070,6 +1073,7 @@ async function runMatrixCell(params: RunCellParams): Promise<CodeModeMatrixCellR
       oracle: classification.oracle,
       passed: classification.passed,
       repetition: params.cell.repetition,
+      ...(command.envelope.runAttempts ? { runAttempts: command.envelope.runAttempts } : {}),
       sourceDirty: params.sourceDirty,
       sourcePatchSha256: params.sourcePatchSha256,
       status: command.envelope.status,

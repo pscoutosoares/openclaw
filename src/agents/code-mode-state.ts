@@ -13,6 +13,7 @@ import {
   type PendingBridgeRequest,
   type SettledBridgeRequest,
 } from "./code-mode-runtime.js";
+import type { CodeModeStats } from "./code-mode-stats.js";
 import type { AgentToolUpdateCallback } from "./runtime/index.js";
 import { ToolSearchRuntime, type ToolSearchToolContext } from "./tool-search.js";
 import { ToolInputError } from "./tools/common.js";
@@ -28,6 +29,9 @@ type BridgeDispatchEntry = {
   status: "queued" | "active" | "settled";
   id: string;
   cancelRequested: boolean;
+  enqueuedAt: number;
+  startedAt?: number;
+  cancelled: boolean;
   start: () => Promise<SettledBridgeRequest>;
   cancelActive: () => void;
   settle: (result: SettledBridgeRequest) => void;
@@ -37,10 +41,12 @@ type BridgeDispatchEntry = {
 export class CodeModeBridgeDispatchQueue {
   readonly #maxConcurrent: number;
   readonly #queued: BridgeDispatchEntry[] = [];
+  readonly #stats?: CodeModeStats;
   #active = 0;
 
-  constructor(maxConcurrent: number) {
+  constructor(maxConcurrent: number, stats?: CodeModeStats) {
     this.#maxConcurrent = Math.max(1, Math.floor(maxConcurrent));
+    this.#stats = stats;
   }
 
   enqueue(params: {
@@ -58,6 +64,8 @@ export class CodeModeBridgeDispatchQueue {
     });
     const entry: BridgeDispatchEntry = {
       id: params.id,
+      enqueuedAt: Date.now(),
+      cancelled: false,
       status: "queued",
       cancelRequested: false,
       start: params.start,
@@ -70,16 +78,40 @@ export class CodeModeBridgeDispatchQueue {
         return;
       }
       const wasActive = entry.status === "active";
+      const settledAt = Date.now();
       entry.status = "settled";
       params.signal?.removeEventListener("abort", onAbort);
+      if (this.#stats) {
+        this.#stats.bridgeLifecycle.settled += 1;
+        this.#stats.bridgeLifecycle.unresolved = Math.max(
+          0,
+          this.#stats.bridgeLifecycle.unresolved - 1,
+        );
+        if (!result.ok && !entry.cancelled) {
+          this.#stats.bridgeLifecycle.failed += 1;
+        }
+        if (entry.startedAt !== undefined) {
+          this.#stats.bridgeLifecycle.activeMs += Math.max(0, settledAt - entry.startedAt);
+        }
+      }
       resolvePromise(result);
       if (wasActive) {
         this.#active = Math.max(0, this.#active - 1);
         this.#pump();
       }
     };
+    const markCancelled = () => {
+      if (entry.cancelled) {
+        return;
+      }
+      entry.cancelled = true;
+      if (this.#stats) {
+        this.#stats.bridgeLifecycle.cancelled += 1;
+      }
+    };
     const cancel = () => {
       if (entry.status === "queued") {
+        markCancelled();
         const index = this.#queued.indexOf(entry);
         if (index >= 0) {
           this.#queued.splice(index, 1);
@@ -87,10 +119,16 @@ export class CodeModeBridgeDispatchQueue {
         entry.settle(cancelledBridgeRequest(params.id));
       } else if (entry.status === "active") {
         entry.cancelRequested = true;
+        markCancelled();
         entry.cancelActive();
       }
     };
+    if (this.#stats) {
+      this.#stats.bridgeLifecycle.queued += 1;
+      this.#stats.bridgeLifecycle.unresolved += 1;
+    }
     if (params.signal?.aborted) {
+      markCancelled();
       entry.settle(cancelledBridgeRequest(params.id));
     } else {
       params.signal?.addEventListener("abort", onAbort, { once: true });
@@ -106,8 +144,14 @@ export class CodeModeBridgeDispatchQueue {
       if (!entry) {
         return;
       }
+      const startedAt = Date.now();
       entry.status = "active";
+      entry.startedAt = startedAt;
       this.#active += 1;
+      if (this.#stats) {
+        this.#stats.bridgeLifecycle.started += 1;
+        this.#stats.bridgeLifecycle.queueWaitMs += Math.max(0, startedAt - entry.enqueuedAt);
+      }
       try {
         void entry.start().then(
           (result) =>
@@ -146,6 +190,7 @@ type CodeModeRunState = {
   agentWaitRetainUntil?: number;
   runtime: ToolSearchRuntime;
   namespaceRuntime: CodeModeNamespaceRuntime;
+  codeModeStats?: CodeModeStats;
 };
 
 const MAX_ACTIVE_CODE_MODE_RUNS = 64;
@@ -326,12 +371,13 @@ export function snapshotState(params: {
   signal?: AbortSignal;
   onUpdate?: AgentToolUpdateCallback;
   bridgeDispatchQueue?: CodeModeBridgeDispatchQueue;
+  codeModeStats?: CodeModeStats;
 }) {
   enforceSnapshotStateLimits(params);
   const runId = `cm_${randomUUID()}`;
   const bridgeDispatchQueue =
     params.bridgeDispatchQueue ??
-    new CodeModeBridgeDispatchQueue(params.config.maxPendingToolCalls);
+    new CodeModeBridgeDispatchQueue(params.config.maxPendingToolCalls, params.codeModeStats);
   const pending = createPendingBridgeStates({
     ...params,
     activeRunId: runId,
@@ -464,6 +510,7 @@ export function storeSnapshotState(params: {
   bridgeDispatchQueue: CodeModeBridgeDispatchQueue;
   runtime: ToolSearchRuntime;
   namespaceRuntime: CodeModeNamespaceRuntime;
+  codeModeStats?: CodeModeStats;
   output: unknown[];
   deliveredOutputCount?: number;
 }) {
@@ -499,6 +546,7 @@ export function storeSnapshotState(params: {
     agentWaitRetainUntil,
     runtime: params.runtime,
     namespaceRuntime: params.namespaceRuntime,
+    codeModeStats: params.codeModeStats,
   });
   scheduleActiveRunExpiry();
   return {

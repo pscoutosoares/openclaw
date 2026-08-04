@@ -1,7 +1,11 @@
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { estimateUsageCost, resolveModelCostConfig } from "../../utils/usage-format.js";
+import { createCodeModeStats, mergeCodeModeStats, type CodeModeStats } from "../code-mode-stats.js";
 /**
  * Accumulates and normalizes per-call token usage across embedded runs.
  */
 import type { NormalizedUsage } from "../usage.js";
+import { createRunAttemptCounter, type RunAttemptCounter } from "./run-attempt-stats.js";
 
 export type UsageAccumulator = {
   input: number;
@@ -25,9 +29,20 @@ export type UsageAccumulator = {
     describe: number;
     call: number;
   };
+  /** Cumulative host-side Code Mode accounting across every run attempt. */
+  codeModeStats?: CodeModeStats;
+  /** True when any embedded candidate engaged OpenClaw Code Mode. */
+  codeModeEngaged: boolean;
+  /** Sum of per-candidate costs when every usage-bearing candidate had pricing. */
+  costUsd: number;
+  costTracking: "untracked" | "complete" | "incomplete";
+  /** Actual embedded dispatches, shared across outer model fallback candidates. */
+  runAttemptCounter: RunAttemptCounter;
 };
 
-export const createUsageAccumulator = (): UsageAccumulator => ({
+export const createUsageAccumulator = (
+  runAttemptCounter = createRunAttemptCounter(),
+): UsageAccumulator => ({
   input: 0,
   output: 0,
   cacheRead: 0,
@@ -35,6 +50,10 @@ export const createUsageAccumulator = (): UsageAccumulator => ({
   reasoningTokens: 0,
   total: 0,
   assistantTurns: 0,
+  codeModeEngaged: false,
+  costUsd: 0,
+  costTracking: "untracked",
+  runAttemptCounter,
 });
 
 type MaybeUsage = NormalizedUsage | undefined;
@@ -73,6 +92,55 @@ export const mergeUsageIntoAccumulator = (target: UsageAccumulator, usage: Maybe
   target.total += callTotal;
 };
 
+export type UsageAccumulatorTotals = Pick<
+  UsageAccumulator,
+  "input" | "output" | "cacheRead" | "cacheWrite" | "total"
+>;
+
+export const snapshotUsageAccumulatorTotals = (
+  target: UsageAccumulator,
+): UsageAccumulatorTotals => ({
+  input: target.input,
+  output: target.output,
+  cacheRead: target.cacheRead,
+  cacheWrite: target.cacheWrite,
+  total: target.total,
+});
+
+export const recordCandidateUsageCost = (
+  target: UsageAccumulator,
+  before: UsageAccumulatorTotals,
+  pricing: {
+    provider: string;
+    model: string;
+    config?: OpenClawConfig;
+    agentDir?: string;
+  },
+) => {
+  const usage = {
+    input: Math.max(0, target.input - before.input),
+    output: Math.max(0, target.output - before.output),
+    cacheRead: Math.max(0, target.cacheRead - before.cacheRead),
+    cacheWrite: Math.max(0, target.cacheWrite - before.cacheWrite),
+    total: Math.max(0, target.total - before.total),
+  };
+  if (!hasUsageValues(usage)) {
+    return;
+  }
+  const costUsd = estimateUsageCost({
+    usage,
+    cost: resolveModelCostConfig(pricing),
+  });
+  if (costUsd === undefined) {
+    target.costTracking = "incomplete";
+    return;
+  }
+  target.costUsd += costUsd;
+  if (target.costTracking === "untracked") {
+    target.costTracking = "complete";
+  }
+};
+
 /**
  * Folds one attempt's run stats into the accumulator. Attempt cleanup clears
  * the per-attempt tool-search catalog, so retries would otherwise discard
@@ -83,17 +151,24 @@ export const mergeAttemptRunStatsIntoAccumulator = (
   attempt: {
     assistantTurns?: number;
     bridgeCalls?: { search: number; describe: number; call: number };
+    codeModeStats?: CodeModeStats;
+    codeModeEngaged?: boolean;
   },
 ) => {
   target.assistantTurns += attempt.assistantTurns ?? 0;
-  if (!attempt.bridgeCalls) {
-    return;
+  target.codeModeEngaged ||= attempt.codeModeEngaged === true;
+  if (attempt.bridgeCalls) {
+    const bridgeCalls = target.bridgeCalls ?? { search: 0, describe: 0, call: 0 };
+    bridgeCalls.search += attempt.bridgeCalls.search;
+    bridgeCalls.describe += attempt.bridgeCalls.describe;
+    bridgeCalls.call += attempt.bridgeCalls.call;
+    target.bridgeCalls = bridgeCalls;
   }
-  const bridgeCalls = target.bridgeCalls ?? { search: 0, describe: 0, call: 0 };
-  bridgeCalls.search += attempt.bridgeCalls.search;
-  bridgeCalls.describe += attempt.bridgeCalls.describe;
-  bridgeCalls.call += attempt.bridgeCalls.call;
-  target.bridgeCalls = bridgeCalls;
+  if (attempt.codeModeStats) {
+    const codeModeStats = target.codeModeStats ?? createCodeModeStats();
+    mergeCodeModeStats(codeModeStats, attempt.codeModeStats);
+    target.codeModeStats = codeModeStats;
+  }
 };
 
 export const toNormalizedUsage = (usage: UsageAccumulator): NormalizedUsage | undefined => {

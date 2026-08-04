@@ -186,7 +186,7 @@ export async function runPreparedEmbeddedLoop(
   let bootstrapPromptWarningSignaturesSeen =
     params.bootstrapPromptWarningSignaturesSeen ??
     (params.bootstrapPromptWarningSignature ? [params.bootstrapPromptWarningSignature] : []);
-  const usageAccumulator = createUsageAccumulator();
+  const usageAccumulator = params.usageAccumulator ?? createUsageAccumulator();
   let lastRunPromptUsage: ReturnType<typeof normalizeUsage> | undefined;
   let overloadProfileRotations = 0;
   const terminalRetryState = createEmbeddedRunTerminalRetryState();
@@ -326,7 +326,7 @@ export async function runPreparedEmbeddedLoop(
           livenessState: "blocked",
         });
       }
-      beginRunAttempt(runRetryBudget);
+      beginRunAttempt(runRetryBudget, usageAccumulator.runAttemptCounter);
       const runtimeAuthRetry: boolean = authRetryPending;
       authRetryPending = false;
       attemptedThinking.add(thinkLevel);

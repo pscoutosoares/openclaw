@@ -1,3 +1,5 @@
+import { recordRunAttemptDispatch, type RunAttemptCounter } from "../run-attempt-stats.js";
+
 export type RunRetryKind = "progress_continuation" | "recovery";
 
 type RunRetryBudget = {
@@ -14,9 +16,12 @@ export function isRunRetryBudgetExhausted(budget: RunRetryBudget): boolean {
   return budget.attemptsCounted >= budget.maxAttempts;
 }
 
-export function beginRunAttempt(budget: RunRetryBudget): void {
+export function beginRunAttempt(budget: RunRetryBudget, counter?: RunAttemptCounter): void {
   budget.attemptsDispatched += 1;
   budget.attemptsCounted += 1;
+  if (counter) {
+    recordRunAttemptDispatch(counter);
+  }
 }
 
 export function resolveRunRetryKind(params: {

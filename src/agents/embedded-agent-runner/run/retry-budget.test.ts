@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createRunAttemptCounter, projectRunAttemptStats } from "../run-attempt-stats.js";
 import {
   beginRunAttempt,
   createRunRetryBudget,
@@ -55,5 +56,25 @@ describe("run retry budget", () => {
     beginRunAttempt(budget);
     recordRunRetry(budget, "recovery");
     expect(isRunRetryBudgetExhausted(budget)).toBe(true);
+  });
+
+  it("counts untraced dispatch retries at the retry-budget owner", () => {
+    const budget = createRunRetryBudget(32);
+    const counter = createRunAttemptCounter();
+
+    // Unsupported-thinking retries dispatch again without adding a trace outcome.
+    beginRunAttempt(budget, counter);
+    beginRunAttempt(budget, counter);
+
+    expect(
+      projectRunAttemptStats(counter, [
+        { provider: "anthropic", model: "claude-test", result: "success" },
+      ]),
+    ).toEqual({
+      total: 2,
+      retries: 1,
+      byResult: { success: 1 },
+      unrecorded: 1,
+    });
   });
 });

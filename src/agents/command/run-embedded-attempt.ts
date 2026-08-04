@@ -24,6 +24,7 @@ import {
   runEmbeddedAgentEntry,
   type EmbeddedAgentRunEntryTerminal,
 } from "../embedded-agent-runner/run-entry.js";
+import { createUsageAccumulator } from "../embedded-agent-runner/usage-accumulator.js";
 import { resolveFastModeState } from "../fast-mode.js";
 import { runAgentHarnessBeforeMessageWriteHook } from "../harness/hook-helpers.js";
 import { prepareInternalSessionEffectsSession } from "../internal-session-effects.js";
@@ -226,6 +227,7 @@ export async function runEmbeddedAgentAttempt(params: {
     modelId: model,
     workspaceDir,
   });
+  const usageAccumulator = createUsageAccumulator();
   let liveSwitchMediaTaskIds: ReadonlySet<string> = new Set();
   for (;;) {
     try {
@@ -321,6 +323,7 @@ export async function runEmbeddedAgentAttempt(params: {
           },
         },
         abortSignal: params.opts.abortSignal,
+        usageAccumulator,
         onFallbackStep: (step) => {
           fallbackTrajectoryRecorder?.recordEvent("model.fallback_step", step);
         },
@@ -468,6 +471,7 @@ export async function runEmbeddedAgentAttempt(params: {
             timeoutMs,
             runTimeoutOverrideMs,
             runId,
+            usageAccumulator: runOptions.usageAccumulator,
             lifecycleGeneration,
             opts: params.opts,
             runContext,

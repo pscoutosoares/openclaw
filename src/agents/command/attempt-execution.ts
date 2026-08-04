@@ -73,6 +73,7 @@ import {
 } from "../cli-session.js";
 import { resolveConversationCapabilityProfile } from "../conversation-capability-profile.js";
 import { resolveConversationToolPolicies } from "../conversation-tool-policy-pipeline.js";
+import type { UsageAccumulator } from "../embedded-agent-runner/usage-accumulator.js";
 import { runEmbeddedAgent, type EmbeddedAgentRunResult } from "../embedded-agent.js";
 import { runAgentHarnessBeforeMessageWriteHook } from "../harness/hook-helpers.js";
 import { resolveAvailableAgentHarnessPolicy } from "../harness/selection.js";
@@ -541,6 +542,7 @@ export function runAgentAttempt(params: {
   timeoutMs: number;
   runTimeoutOverrideMs?: number;
   runId: string;
+  usageAccumulator?: UsageAccumulator;
   lifecycleGeneration: string;
   opts: AgentCommandOpts;
   runContext: ReturnType<typeof resolveAgentRunContext>;
@@ -1133,6 +1135,7 @@ export function runAgentAttempt(params: {
   }
 
   const embeddedRunParams: Parameters<typeof runEmbeddedAgent>[0] = {
+    usageAccumulator: params.usageAccumulator,
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
     sessionTarget: params.sessionTarget,

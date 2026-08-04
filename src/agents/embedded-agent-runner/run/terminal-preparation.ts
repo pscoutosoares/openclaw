@@ -5,6 +5,7 @@ import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome
 import type { AuthProfileStore } from "../../auth-profiles.js";
 import type { NormalizedUsage, UsageLike } from "../../usage.js";
 import { resolveEmbeddedRunFailureSignal } from "../failure-signal.js";
+import { projectRunAttemptStats } from "../run-attempt-stats.js";
 import type { EmbeddedAgentMeta, EmbeddedAgentRunResult } from "../types.js";
 import type { UsageAccumulator } from "../usage-accumulator.js";
 import type { EmbeddedRunContextRecoveryState } from "./context-recovery-state.js";
@@ -112,10 +113,16 @@ export function prepareEmbeddedRunTerminal(input: {
     compactionTokensAfter: input.contextRecoveryState.lastCompactionTokensAfter,
     // Absent attempt engagement (plugin harness routes) intentionally reads as
     // false so config-enabled-but-unengaged code mode is visible to consumers.
-    codeModeEngaged: attempt.codeModeEngaged === true,
+    codeModeEngaged: input.usageAccumulator.codeModeEngaged || attempt.codeModeEngaged === true,
     ...(runAssistantTurns > 0 ? { assistantTurns: runAssistantTurns } : {}),
     ...(input.usageAccumulator.bridgeCalls
       ? { bridgeCalls: { ...input.usageAccumulator.bridgeCalls } }
+      : {}),
+    ...(input.usageAccumulator.codeModeStats
+      ? { codeModeStats: input.usageAccumulator.codeModeStats }
+      : {}),
+    ...(input.usageAccumulator.runAttemptCounter.total > 0
+      ? { runAttempts: projectRunAttemptStats(input.usageAccumulator.runAttemptCounter) }
       : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
   };

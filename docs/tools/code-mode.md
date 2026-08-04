@@ -1054,11 +1054,12 @@ policy narrows that catalog.
 The run metadata (`meta.agentMeta` in `openclaw agent --json`, mirrored on the
 `agent exec --json` envelope) adds per-run stats:
 
-- `codeModeEngaged`: `true` only when code mode actually owned the model tool
-  surface. This is the reliable engagement signal — do not infer engagement
-  from config or tool names: the shell tool is also named `exec`, and the
-  `"auto"` tier engages per model capability. Harnesses that bridge OpenClaw's
-  tool surface (Copilot) report their resolved gate, so
+- `codeModeEngaged`: `true` when code mode owned the model tool surface for any
+  fallback candidate, including a failed primary before a different winner.
+  This is the reliable engagement signal — do not infer engagement from config
+  or tool names: the shell tool is also named `exec`, and the `"auto"` tier
+  engages per model capability. Harnesses that bridge OpenClaw's tool surface
+  (Copilot) report their resolved gate, so
   `codeModeEngaged: false` with `tools.codeMode.enabled=true` makes a silent
   no-op observable. Harnesses that run their own native tool surface (Codex)
   never engage OpenClaw code mode, so they always read `false`; an attempt that
@@ -1066,11 +1067,28 @@ The run metadata (`meta.agentMeta` in `openclaw agent --json`, mirrored on the
   `codeModeOnly` is a separate native feature that this field does not track.
 - `assistantTurns`: completed assistant/provider round trips across the run.
 - `bridgeCalls`: the run's cumulative inner bridge counts
-  (`{ search, describe, call }`). These calls never reach the provider;
+  (`{ search, describe, call }`) from the existing catalog counters. Detailed
+  guest method counts, including `callValue`, stay separate in
+  `codeModeStats.bridgeCalls`. These calls never reach the provider;
   provider-visible outer tool calls remain in `meta.toolSummary.calls`.
-- `costUsd`: estimated USD cost from the run's accumulated usage and the
-  model's cost config (cache read/write tiers included); omitted when the
-  model has no cost data.
+- `codeModeStats`: detailed host-side accounting for Code Mode:
+  model-visible `controlCalls` (`exec`/`wait`), all 12 guest `bridgeCalls`,
+  QuickJS `workerRuns` (`exec`/`resume`), `bridgeLifecycle` queue counts and
+  time, and terminal `outcomes`. `bridgeLifecycle.unresolved` is the
+  outstanding request count from the final extracted attempt, not a cumulative
+  retry counter. This field measures OpenClaw's adapter work; it is not a
+  provider API-call counter.
+- `costUsd`: sum of per-candidate cost estimates, each calculated from that
+  candidate's accumulated usage and provider/model cost config (cache
+  read/write tiers included). Single-candidate runs keep the existing
+  accumulated-usage estimate. The field is omitted when any usage-bearing
+  candidate lacks pricing.
+
+`agent exec --json` also reports `runAttempts` from the embedded runner's
+dispatch counter. `total` spans same-model retries and outer fallback
+candidates, `retries` is `total - 1`, `byResult` counts only recorded execution
+trace outcomes, and `unrecorded` exposes dispatches without a trace outcome.
+Provider transport-internal retries remain outside this counter.
 
 Telemetry must not include secrets, raw environment values, or unredacted
 tool inputs beyond existing OpenClaw trajectory policy.

@@ -2,7 +2,9 @@
 // metadata assembly shared by normal exits and failure paths.
 import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { describe, expect, it } from "vitest";
+import { createCodeModeStats } from "../../code-mode-stats.js";
 import type { NormalizedUsage } from "../../usage.js";
+import { recordRunAttemptDispatch } from "../run-attempt-stats.js";
 import { createUsageAccumulator, mergeUsageIntoAccumulator } from "../usage-accumulator.js";
 import {
   buildUsageAgentMetaFields,
@@ -338,6 +340,12 @@ describe("buildErrorAgentMeta", () => {
       total: 200,
     } satisfies NormalizedUsage;
     mergeUsageIntoAccumulator(usageAccumulator, latestCallUsage);
+    usageAccumulator.assistantTurns = 2;
+    usageAccumulator.bridgeCalls = { search: 1, describe: 2, call: 3 };
+    usageAccumulator.codeModeStats = createCodeModeStats();
+    usageAccumulator.codeModeStats.controlCalls.exec = 1;
+    recordRunAttemptDispatch(usageAccumulator.runAttemptCounter);
+    recordRunAttemptDispatch(usageAccumulator.runAttemptCounter);
 
     const fields = buildErrorAgentMeta({
       sessionId: "session-error",
@@ -355,6 +363,15 @@ describe("buildErrorAgentMeta", () => {
       total: 350,
     });
     expect(fields.lastCallUsage).toEqual(latestCallUsage);
+    expect(fields.assistantTurns).toBe(2);
+    expect(fields.bridgeCalls).toEqual({ search: 1, describe: 2, call: 3 });
+    expect(fields.codeModeStats?.controlCalls.exec).toBe(1);
+    expect(fields.runAttempts).toEqual({
+      total: 2,
+      retries: 1,
+      byResult: {},
+      unrecorded: 2,
+    });
   });
 
   it("preserves active session file for error exits after transcript rotation", () => {

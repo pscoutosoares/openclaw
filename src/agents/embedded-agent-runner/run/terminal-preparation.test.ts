@@ -1,5 +1,7 @@
 import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { describe, expect, it, vi } from "vitest";
+import { createCodeModeStats, type CodeModeStats } from "../../code-mode-stats.js";
+import { recordRunAttemptDispatch } from "../run-attempt-stats.js";
 import { createUsageAccumulator } from "../usage-accumulator.js";
 import { createEmbeddedRunContextRecoveryState } from "./context-recovery-state.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
@@ -115,6 +117,9 @@ describe("prepareEmbeddedRunTerminal run stats", () => {
     attempt?: Partial<EmbeddedRunAttemptResult>;
     assistantTurns?: number;
     bridgeCalls?: { search: number; describe: number; call: number };
+    codeModeStats?: CodeModeStats;
+    accumulatedCodeModeEngaged?: boolean;
+    runAttempts?: number;
     config?: unknown;
     provider?: string;
     model?: string;
@@ -139,6 +144,11 @@ describe("prepareEmbeddedRunTerminal run stats", () => {
     Object.assign(usageAccumulator, statsInput.usage);
     usageAccumulator.assistantTurns = statsInput.assistantTurns ?? 0;
     usageAccumulator.bridgeCalls = statsInput.bridgeCalls;
+    usageAccumulator.codeModeStats = statsInput.codeModeStats;
+    usageAccumulator.codeModeEngaged = statsInput.accumulatedCodeModeEngaged ?? false;
+    for (let attempt = 0; attempt < (statsInput.runAttempts ?? 0); attempt += 1) {
+      recordRunAttemptDispatch(usageAccumulator.runAttemptCounter);
+    }
     return prepareEmbeddedRunTerminal({
       runParams: {
         sessionId: "session-1",
@@ -196,6 +206,28 @@ describe("prepareEmbeddedRunTerminal run stats", () => {
     expect(prepared.agentMeta.codeModeEngaged).toBe(expected);
   });
 
+  it.each([
+    {
+      name: "failed primary engaged and winner did not",
+      accumulatedCodeModeEngaged: true,
+      codeModeEngaged: false,
+    },
+    {
+      name: "failed primary did not engage and winner did",
+      accumulatedCodeModeEngaged: false,
+      codeModeEngaged: true,
+    },
+  ])(
+    "retains run-wide Code Mode engagement when $name",
+    async ({ accumulatedCodeModeEngaged, codeModeEngaged }) => {
+      const prepared = await prepareStats({
+        accumulatedCodeModeEngaged,
+        attempt: { codeModeEngaged },
+      });
+      expect(prepared.agentMeta.codeModeEngaged).toBe(true);
+    },
+  );
+
   it("stamps assistantTurns from the run accumulator and omits zero", async () => {
     const counted = await prepareStats({ assistantTurns: 3 });
     expect(counted.agentMeta.assistantTurns).toBe(3);
@@ -212,6 +244,30 @@ describe("prepareEmbeddedRunTerminal run stats", () => {
 
     const withoutBridge = await prepareStats({});
     expect(withoutBridge.agentMeta).not.toHaveProperty("bridgeCalls");
+  });
+
+  it("stamps detailed Code Mode accounting and omits it when absent", async () => {
+    const codeModeStats = createCodeModeStats();
+    codeModeStats.controlCalls.exec = 1;
+    codeModeStats.bridgeCalls.callValue = 2;
+    codeModeStats.workerRuns.exec = 1;
+    codeModeStats.outcomes.completed = 1;
+
+    const withStats = await prepareStats({ codeModeStats });
+    expect(withStats.agentMeta.codeModeStats).toEqual(codeModeStats);
+
+    const withoutStats = await prepareStats({});
+    expect(withoutStats.agentMeta).not.toHaveProperty("codeModeStats");
+  });
+
+  it("stamps authoritative dispatch counts before trace classification", async () => {
+    const counted = await prepareStats({ runAttempts: 2 });
+    expect(counted.agentMeta.runAttempts).toEqual({
+      total: 2,
+      retries: 1,
+      byResult: {},
+      unrecorded: 2,
+    });
   });
 
   it("computes costUsd from accumulated usage including cache pricing", async () => {

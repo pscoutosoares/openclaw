@@ -555,6 +555,22 @@ describe("Code Mode model matrix artifacts", () => {
             return {
               buildSha256: "build123",
               bridgeCalls: { search: 0, describe: 0, call: 1 },
+              codeModeStats: {
+                controlCalls: { exec: 1, wait: 0 },
+                bridgeCalls: { callValue: 1 },
+                workerRuns: { exec: 1, resume: 1 },
+                bridgeLifecycle: {
+                  queued: 1,
+                  started: 1,
+                  settled: 1,
+                  failed: 0,
+                  cancelled: 0,
+                  unresolved: 0,
+                  queueWaitMs: 2,
+                  activeMs: 5,
+                },
+                outcomes: { completed: 1, waiting: 0, failed: 0, aborted: 0 },
+              },
               codeModeEngaged: true,
               elapsedMs: 10,
               expected: "CM-EXPECTED",
@@ -575,6 +591,12 @@ describe("Code Mode model matrix artifacts", () => {
               },
               passed: true,
               repetition: cell.repetition,
+              runAttempts: {
+                total: 2,
+                retries: 1,
+                byResult: { fallback_model: 1, success: 1 },
+                unrecorded: 0,
+              },
               sourceDirty: false,
               sourcePatchSha256: null,
               status: "ok",
@@ -609,6 +631,21 @@ describe("Code Mode model matrix artifacts", () => {
       expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({
         failureCategory: "harness_error",
         error: { kind: "harness_error", message: "fixture exploded" },
+      });
+      expect(JSON.parse(lines[1] ?? "{}")).toMatchObject({
+        codeModeStats: {
+          controlCalls: { exec: 1, wait: 0 },
+          bridgeCalls: { callValue: 1 },
+          workerRuns: { exec: 1, resume: 1 },
+          bridgeLifecycle: { queued: 1, settled: 1, unresolved: 0 },
+          outcomes: { completed: 1, aborted: 0 },
+        },
+        runAttempts: {
+          total: 2,
+          retries: 1,
+          byResult: { fallback_model: 1, success: 1 },
+          unrecorded: 0,
+        },
       });
       const evidence = validateQaEvidenceSummaryJson(
         JSON.parse(await fs.readFile(path.join(repoRoot, "artifacts", "qa-evidence.json"), "utf8")),

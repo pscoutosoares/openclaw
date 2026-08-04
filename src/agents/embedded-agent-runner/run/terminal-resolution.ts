@@ -8,6 +8,7 @@ import type { AgentExecutionAuthBinding } from "../../execution-auth-binding.js"
 import type { ResolvedProviderAuth } from "../../model-auth.js";
 import { log } from "../logger.js";
 import type { EmbeddedRunReplayState } from "../replay-state.js";
+import { projectRunAttemptStats } from "../run-attempt-stats.js";
 import type {
   EmbeddedAgentMeta,
   EmbeddedAgentRunResult,
@@ -561,6 +562,20 @@ function completeEmbeddedRun(
     stopReason,
     yielded: input.attempt.yieldDetected === true,
   });
+  const executionAttempts =
+    input.traceAttempts.length > 0 ||
+    input.attemptAssistant?.provider ||
+    input.attemptAssistant?.model
+      ? [
+          ...input.traceAttempts,
+          {
+            provider: input.reportedModelRef.provider,
+            model: input.reportedModelRef.model,
+            result: "success" as const,
+            stage: "assistant" as const,
+          },
+        ]
+      : undefined;
   return {
     action: "complete",
     result: {
@@ -570,7 +585,12 @@ function completeEmbeddedRun(
         : {}),
       meta: {
         durationMs: Date.now() - input.startedAtMs,
-        agentMeta: input.agentMeta,
+        agentMeta: input.agentMeta.runAttempts
+          ? {
+              ...input.agentMeta,
+              runAttempts: projectRunAttemptStats(input.agentMeta.runAttempts, executionAttempts),
+            }
+          : input.agentMeta,
         aborted: terminalAborted,
         systemPromptReport: input.attempt.systemPromptReport,
         finalPromptText: input.attempt.finalPromptText,
@@ -592,20 +612,7 @@ function completeEmbeddedRun(
         executionTrace: {
           winnerProvider: input.reportedModelRef.provider,
           winnerModel: input.reportedModelRef.model,
-          attempts:
-            input.traceAttempts.length > 0 ||
-            input.attemptAssistant?.provider ||
-            input.attemptAssistant?.model
-              ? [
-                  ...input.traceAttempts,
-                  {
-                    provider: input.reportedModelRef.provider,
-                    model: input.reportedModelRef.model,
-                    result: "success",
-                    stage: "assistant",
-                  },
-                ]
-              : undefined,
+          attempts: executionAttempts,
           fallbackUsed: input.traceAttempts.some(input.traceAttemptUsesFallback),
           runner: "embedded",
         },

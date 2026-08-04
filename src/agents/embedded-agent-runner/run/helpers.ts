@@ -4,6 +4,7 @@
 import { generateSecureToken } from "../../../infra/secure-random.js";
 import type { AssistantMessage } from "../../../llm/types.js";
 import { extractAssistantTextForPhase } from "../../../shared/chat-message-content.js";
+import { cloneCodeModeStats } from "../../code-mode-stats.js";
 import { extractAssistantVisibleText } from "../../embedded-agent-utils.js";
 import {
   deriveContextPromptTokens,
@@ -12,6 +13,7 @@ import {
   type ContextUsage,
   type NormalizedUsage,
 } from "../../usage.js";
+import { projectRunAttemptStats } from "../run-attempt-stats.js";
 import type { EmbeddedAgentMeta } from "../types.js";
 import { toNormalizedUsage, type UsageAccumulator } from "../usage-accumulator.js";
 
@@ -253,6 +255,19 @@ export function buildErrorAgentMeta(params: {
     ...(usageMeta.usage ? { usage: usageMeta.usage } : {}),
     ...(usageMeta.lastCallUsage ? { lastCallUsage: usageMeta.lastCallUsage } : {}),
     ...(usageMeta.promptTokens ? { promptTokens: usageMeta.promptTokens } : {}),
+    ...(params.usageAccumulator.assistantTurns > 0
+      ? { assistantTurns: params.usageAccumulator.assistantTurns }
+      : {}),
+    codeModeEngaged: params.usageAccumulator.codeModeEngaged,
+    ...(params.usageAccumulator.bridgeCalls
+      ? { bridgeCalls: { ...params.usageAccumulator.bridgeCalls } }
+      : {}),
+    ...(params.usageAccumulator.codeModeStats
+      ? { codeModeStats: cloneCodeModeStats(params.usageAccumulator.codeModeStats) }
+      : {}),
+    ...(params.usageAccumulator.runAttemptCounter.total > 0
+      ? { runAttempts: projectRunAttemptStats(params.usageAccumulator.runAttemptCounter) }
+      : {}),
   };
 }
 

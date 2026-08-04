@@ -17,11 +17,18 @@ import {
   mergeEmbeddedAgentRunResultForModelFallbackExhaustion,
 } from "./result-fallback-classifier.js";
 import type { EmbeddedAgentRunResult } from "./types.js";
+import {
+  createUsageAccumulator,
+  recordCandidateUsageCost,
+  snapshotUsageAccumulatorTotals,
+  type UsageAccumulator,
+} from "./usage-accumulator.js";
 
 type RunEntryCandidateOptions = {
   allowTransientCooldownProbe?: boolean;
   isFinalFallbackAttempt?: boolean;
   isFallbackRetry: boolean;
+  usageAccumulator: UsageAccumulator;
 };
 
 type RunEntryHarnessPreparation =
@@ -95,6 +102,7 @@ type EmbeddedAgentRunEntryParams<T extends EmbeddedAgentRunResult> = {
   behavior: RunEntryBehavior;
   sessionOverride: RunEntrySessionOverride;
   abortSignal?: AbortSignal;
+  usageAccumulator?: UsageAccumulator;
   onFallbackStep?: (step: ModelFallbackStepFields) => void | Promise<void>;
   runCandidate: (provider: string, model: string, options: RunEntryCandidateOptions) => Promise<T>;
 };
@@ -104,6 +112,29 @@ const PRESERVED_FOLLOWUP_RESULT_CODES = new Set([
   "reasoning_only_result",
   "planning_only_result",
 ]);
+
+function applyAccumulatedRunCost<T extends EmbeddedAgentRunResult>(
+  result: T,
+  usageAccumulator: UsageAccumulator,
+): T {
+  const agentMeta = result.meta.agentMeta;
+  if (!agentMeta || usageAccumulator.costTracking === "untracked") {
+    return result;
+  }
+  const nextAgentMeta = { ...agentMeta };
+  if (usageAccumulator.costTracking === "complete") {
+    nextAgentMeta.costUsd = usageAccumulator.costUsd;
+  } else {
+    delete nextAgentMeta.costUsd;
+  }
+  return {
+    ...result,
+    meta: {
+      ...result.meta,
+      agentMeta: nextAgentMeta,
+    },
+  };
+}
 
 function preserveFollowupResultForDelivery(
   classification: ModelFallbackResultClassification,
@@ -205,6 +236,7 @@ export async function runEmbeddedAgentEntry<T extends EmbeddedAgentRunResult>(
   params: EmbeddedAgentRunEntryParams<T>,
 ): Promise<EmbeddedAgentRunEntryResult<T>> {
   let candidateIndex = 0;
+  const usageAccumulator = params.usageAccumulator ?? createUsageAccumulator();
   const committedSideEffect =
     params.behavior.kind === "command-rpc" ? params.behavior.hasCommittedSideEffect : undefined;
   const readChannelDeliveryEvidence =
@@ -297,27 +329,41 @@ export async function runEmbeddedAgentEntry<T extends EmbeddedAgentRunResult>(
     run: async (provider, model, options) => {
       const isFallbackRetry = candidateIndex > 0;
       candidateIndex += 1;
-      return params.runCandidate(provider, model, {
-        allowTransientCooldownProbe: options?.allowTransientCooldownProbe,
-        isFinalFallbackAttempt: options?.isFinalFallbackAttempt,
-        isFallbackRetry,
-      });
+      const usageBefore = snapshotUsageAccumulatorTotals(usageAccumulator);
+      let candidateResult: T | undefined;
+      try {
+        candidateResult = await params.runCandidate(provider, model, {
+          allowTransientCooldownProbe: options?.allowTransientCooldownProbe,
+          isFinalFallbackAttempt: options?.isFinalFallbackAttempt,
+          isFallbackRetry,
+          usageAccumulator,
+        });
+        return candidateResult;
+      } finally {
+        recordCandidateUsageCost(usageAccumulator, usageBefore, {
+          provider: candidateResult?.meta.agentMeta?.provider ?? provider,
+          model: candidateResult?.meta.agentMeta?.model ?? model,
+          config: params.selection.cfg,
+          agentDir: params.selection.agentDir,
+        });
+      }
     },
   });
   const abortFields =
     params.behavior.kind === "command-rpc"
       ? resolveAgentRunAbortLifecycleFields(params.abortSignal)
       : {};
+  const pricedResult = applyAccumulatedRunCost(fallbackResult.result, usageAccumulator);
   const result =
     abortFields.aborted === true
       ? ({
-          ...fallbackResult.result,
+          ...pricedResult,
           meta: {
-            ...fallbackResult.result.meta,
+            ...pricedResult.meta,
             ...abortFields,
           },
         } as T)
-      : fallbackResult.result;
+      : pricedResult;
   const settledResult = {
     ...fallbackResult,
     outcome:

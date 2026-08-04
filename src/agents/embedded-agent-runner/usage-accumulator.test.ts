@@ -1,10 +1,13 @@
 // Usage accumulator tests cover multi-call token aggregation used for billing
 // metadata on embedded run results.
 import { describe, expect, it } from "vitest";
+import { createCodeModeStats } from "../code-mode-stats.js";
 import {
   createUsageAccumulator,
   mergeAttemptRunStatsIntoAccumulator,
   mergeUsageIntoAccumulator,
+  recordCandidateUsageCost,
+  snapshotUsageAccumulatorTotals,
   toNormalizedUsage,
 } from "./usage-accumulator.js";
 
@@ -105,6 +108,101 @@ describe("usage-accumulator", () => {
 
       expect(acc.assistantTurns).toBe(1);
       expect(acc.bridgeCalls).toBeUndefined();
+    });
+
+    it.each([
+      { first: true, second: false },
+      { first: false, second: true },
+    ])("retains Code Mode engagement across mixed candidates", ({ first, second }) => {
+      const acc = createUsageAccumulator();
+
+      mergeAttemptRunStatsIntoAccumulator(acc, { codeModeEngaged: first });
+      mergeAttemptRunStatsIntoAccumulator(acc, { codeModeEngaged: second });
+
+      expect(acc.codeModeEngaged).toBe(true);
+    });
+
+    it("accumulates detailed Code Mode stats across attempts", () => {
+      const acc = createUsageAccumulator();
+      const first = createCodeModeStats();
+      first.controlCalls.exec = 1;
+      first.bridgeCalls.callValue = 2;
+      first.bridgeLifecycle.queued = 2;
+      first.bridgeLifecycle.settled = 2;
+      first.bridgeLifecycle.unresolved = 2;
+      first.workerRuns.exec = 1;
+      first.outcomes.completed = 1;
+      const second = createCodeModeStats();
+      second.controlCalls.exec = 1;
+      second.controlCalls.wait = 1;
+      second.bridgeCalls.agentWait = 1;
+      second.bridgeLifecycle.queued = 1;
+      second.bridgeLifecycle.unresolved = 1;
+      second.workerRuns.exec = 1;
+      second.workerRuns.resume = 1;
+      second.outcomes.waiting = 1;
+
+      mergeAttemptRunStatsIntoAccumulator(acc, { codeModeStats: first });
+      mergeAttemptRunStatsIntoAccumulator(acc, { codeModeStats: second });
+
+      expect(acc.codeModeStats).toMatchObject({
+        controlCalls: { exec: 2, wait: 1 },
+        bridgeCalls: { callValue: 2, agentWait: 1 },
+        workerRuns: { exec: 2, resume: 1 },
+        bridgeLifecycle: { queued: 3, settled: 2, unresolved: 1 },
+        outcomes: { completed: 1, waiting: 1, failed: 0 },
+      });
+    });
+  });
+
+  describe("candidate cost accounting", () => {
+    const config = {
+      models: {
+        providers: {
+          primary: {
+            models: [{ id: "model-a", cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }],
+          },
+          fallback: {
+            models: [
+              { id: "model-b", cost: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0 } },
+            ],
+          },
+        },
+      },
+    };
+
+    it("prices each candidate usage delta with that candidate's model", () => {
+      const acc = createUsageAccumulator();
+      const primaryStart = snapshotUsageAccumulatorTotals(acc);
+      mergeUsageIntoAccumulator(acc, { input: 1_000_000, output: 500_000, total: 1_500_000 });
+      recordCandidateUsageCost(acc, primaryStart, {
+        provider: "primary",
+        model: "model-a",
+        config,
+      });
+      const fallbackStart = snapshotUsageAccumulatorTotals(acc);
+      mergeUsageIntoAccumulator(acc, { input: 1_000_000, output: 500_000, total: 1_500_000 });
+      recordCandidateUsageCost(acc, fallbackStart, {
+        provider: "fallback",
+        model: "model-b",
+        config,
+      });
+
+      expect(acc.costTracking).toBe("complete");
+      expect(acc.costUsd).toBe(22);
+    });
+
+    it("marks the composition incomplete when a usage-bearing candidate lacks pricing", () => {
+      const acc = createUsageAccumulator();
+      const start = snapshotUsageAccumulatorTotals(acc);
+      mergeUsageIntoAccumulator(acc, { input: 1_000_000, output: 500_000, total: 1_500_000 });
+      recordCandidateUsageCost(acc, start, {
+        provider: "unknown",
+        model: "unpriced",
+        config,
+      });
+
+      expect(acc.costTracking).toBe("incomplete");
     });
   });
 

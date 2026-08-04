@@ -21,4 +21,5 @@ export type {
   EmbeddedAgentCompactResult,
   EmbeddedAgentRunMeta,
   EmbeddedAgentRunResult,
+  RunAttemptStats,
 } from "./embedded-agent-runner/types.js";

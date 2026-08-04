@@ -10,6 +10,7 @@ import type {
 import type { DiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import type { AcceptedSessionSpawn } from "../accepted-session-spawn.js";
 import type { AgentRunTerminalReplySnapshot } from "../agent-run-terminal-reply.js";
+import type { CodeModeStats } from "../code-mode-stats.js";
 import type {
   MessagingToolSend,
   MessagingToolSourceReplyPayload,
@@ -102,6 +103,10 @@ export type EmbeddedAgentMeta = {
     describe: number;
     call: number;
   };
+  /** Detailed host-side Code Mode execution and bridge accounting for the run. */
+  codeModeStats?: CodeModeStats;
+  /** Actual embedded dispatches across retries and outer model fallback candidates. */
+  runAttempts?: RunAttemptStats;
   /** Estimated USD cost of the run's accumulated usage. Omitted when the model has no cost data. */
   costUsd?: number;
 };
@@ -123,6 +128,14 @@ export type TraceAttempt = {
   stage?: "prompt" | "assistant";
   elapsedMs?: number;
   status?: number;
+};
+
+export type RunAttemptStats = {
+  total: number;
+  retries: number;
+  byResult: Partial<Record<TraceAttempt["result"], number>>;
+  /** Dispatches without a recorded execution-trace outcome. */
+  unrecorded: number;
 };
 
 type ExecutionTrace = {

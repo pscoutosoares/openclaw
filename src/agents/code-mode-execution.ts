@@ -43,6 +43,11 @@ import {
   waitForPendingBridgeSettlement,
   type PendingBridgeState,
 } from "./code-mode-state.js";
+import {
+  ensureCodeModeStats,
+  recordCodeModeWorkerRun,
+  type CodeModeStats,
+} from "./code-mode-stats.js";
 import { normalizeCodeModeWorkerResult, runCodeModeWorker } from "./code-mode-worker.js";
 import type { AgentToolUpdateCallback } from "./runtime/index.js";
 import { resolveSwarmConfig } from "./swarm-config.js";
@@ -71,6 +76,7 @@ export async function runExec(params: {
     throw new ToolInputError("code mode is disabled.");
   }
   const runtime = new ToolSearchRuntime(params.ctx, toToolSearchConfig(config));
+  const codeModeStats = ensureCodeModeStats(params.ctx.catalogRef);
   params.onRuntime?.(runtime);
   const bridgeDispatch = { started: false };
   const replaySafety = { safe: true };
@@ -113,6 +119,7 @@ export async function runExec(params: {
     if (remainingMs <= 0) {
       throw new Error("interrupted");
     }
+    recordCodeModeWorkerRun(codeModeStats, "exec");
     const result = normalizeCodeModeWorkerResult(
       await runCodeModeWorker(
         {
@@ -141,6 +148,7 @@ export async function runExec(params: {
       config,
       runtime,
       namespaceRuntime,
+      codeModeStats,
       bridgeDispatch,
       signal: params.signal,
       onUpdate: params.onUpdate,
@@ -235,6 +243,7 @@ async function settleCodeModeResult(params: {
   deliveredOutputCount?: number;
   pending?: PendingBridgeState[];
   bridgeDispatchQueue?: CodeModeBridgeDispatchQueue;
+  codeModeStats?: CodeModeStats;
   activeRunId?: string;
   reservedActiveRunSlot?: boolean;
   bridgeDispatch: { started: boolean };
@@ -245,7 +254,7 @@ async function settleCodeModeResult(params: {
   let pending = params.pending ?? [];
   const bridgeDispatchQueue =
     params.bridgeDispatchQueue ??
-    new CodeModeBridgeDispatchQueue(params.config.maxPendingToolCalls);
+    new CodeModeBridgeDispatchQueue(params.config.maxPendingToolCalls, params.codeModeStats);
   const activeRunId = params.activeRunId ?? `cm_${randomUUID()}`;
   const output = params.output;
   const deliveredOutputCount = params.deliveredOutputCount ?? 0;
@@ -386,6 +395,7 @@ async function settleCodeModeResult(params: {
           bridgeDispatchQueue,
           runtime: params.runtime,
           namespaceRuntime: params.namespaceRuntime,
+          codeModeStats: params.codeModeStats,
           output,
           deliveredOutputCount,
         });
@@ -398,6 +408,7 @@ async function settleCodeModeResult(params: {
       // The resumed guest inherits only the remaining shared budget as its
       // QuickJS interrupt deadline; the extra host margin is watchdog grace,
       // not extra guest run time.
+      recordCodeModeWorkerRun(params.codeModeStats, "resume");
       result = normalizeCodeModeWorkerResult(
         await runCodeModeWorker(
           {
@@ -504,6 +515,7 @@ async function settleCodeModeResult(params: {
           bridgeDispatchQueue,
           runtime: params.runtime,
           namespaceRuntime: params.namespaceRuntime,
+          codeModeStats: params.codeModeStats,
           output,
           deliveredOutputCount,
         });
@@ -535,6 +547,7 @@ async function settleCodeModeResult(params: {
       signal: params.signal,
       onUpdate: params.onUpdate,
       bridgeDispatchQueue,
+      codeModeStats: params.codeModeStats,
     });
   }
   // Defensive cleanup covers aborts or terminal failures; successful runs have
@@ -640,6 +653,7 @@ export async function runWait(params: {
     releaseActiveRunSlot = reserveActiveRunSlot(state.runId);
     // The resumed guest inherits only the remaining shared budget as its QuickJS
     // interrupt deadline; the extra host margin is watchdog grace only.
+    recordCodeModeWorkerRun(state.codeModeStats, "resume");
     const result = normalizeCodeModeWorkerResult(
       await runCodeModeWorker(
         {
@@ -676,6 +690,7 @@ export async function runWait(params: {
       config: state.config,
       runtime: state.runtime,
       namespaceRuntime: state.namespaceRuntime,
+      codeModeStats: state.codeModeStats,
       bridgeDispatchQueue: state.bridgeDispatchQueue,
       bridgeDispatch: { started: true },
       deliveredOutputCount: state.deliveredOutputCount,

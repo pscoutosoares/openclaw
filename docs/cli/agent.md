@@ -74,6 +74,28 @@ Plain output writes only the final assistant text to stdout. Diagnostics use std
   "codeModeEngaged": false,
   "assistantTurns": 2,
   "bridgeCalls": { "search": 1, "describe": 0, "call": 3 },
+  "codeModeStats": {
+    "controlCalls": { "exec": 1, "wait": 0 },
+    "bridgeCalls": { "search": 1, "callValue": 3 },
+    "workerRuns": { "exec": 1, "resume": 2 },
+    "bridgeLifecycle": {
+      "queued": 4,
+      "started": 4,
+      "settled": 4,
+      "failed": 0,
+      "cancelled": 0,
+      "unresolved": 0,
+      "queueWaitMs": 3,
+      "activeMs": 45
+    },
+    "outcomes": { "completed": 1, "waiting": 0, "failed": 0, "aborted": 0 }
+  },
+  "runAttempts": {
+    "total": 2,
+    "retries": 1,
+    "byResult": { "fallback_model": 1, "success": 1 },
+    "unrecorded": 0
+  },
   "toolSummary": { "calls": 2, "tools": ["read", "write"], "totalToolTimeMs": 48 },
   "model": "gpt-5.6-sol",
   "provider": "openai",
@@ -85,10 +107,12 @@ Plain output writes only the final assistant text to stdout. Diagnostics use std
 
 Run-stat fields are additive and may be absent:
 
-- `costUsd`: estimated USD cost of the run's accumulated usage, including cache read/write pricing; omitted when the model has no cost data.
-- `codeModeEngaged`: `true` only when [code mode](/tools/code-mode) actually owned the model tool surface for the run. `tools.codeMode.enabled=true` alone does not guarantee engagement, and harnesses that own their native tool surface always read `false` because OpenClaw code mode never owns their tools.
+- `costUsd`: sum of per-candidate cost estimates, each calculated from that candidate's accumulated usage and provider/model pricing, including cache read/write tiers. A single-candidate run keeps the existing accumulated-usage estimate. The field is omitted when any usage-bearing candidate lacks pricing.
+- `codeModeEngaged`: `true` when [code mode](/tools/code-mode) owned the model tool surface for any fallback candidate, including a failed primary before a different winner. `tools.codeMode.enabled=true` alone does not guarantee engagement, and harnesses that own their native tool surface always read `false` because OpenClaw code mode never owns their tools.
 - `assistantTurns`: completed assistant/provider round trips in the run; omitted when none completed.
-- `bridgeCalls`: inner tool-search/code-mode bridge call counts (`search`/`describe`/`call`). These are invisible to the provider; outer tool calls stay in `meta.toolSummary.calls` of the full run metadata.
+- `bridgeCalls`: legacy catalog counters (`search`/`describe`/`call`) retained with their existing semantics. Detailed guest method counts, including `callValue`, live separately in `codeModeStats.bridgeCalls`. These are invisible to the provider; outer tool calls stay in `meta.toolSummary.calls` of the full run metadata.
+- `codeModeStats`: host-side Code Mode accounting. It separates model-visible `exec`/`wait` controls, the 12 guest bridge methods, QuickJS `exec`/`resume` worker legs, bridge queue lifecycle and time, and terminal control outcomes. `unresolved` is a gauge owned by the final extracted attempt, not a cumulative retry counter.
+- `runAttempts`: counts actual embedded-harness dispatches at the runner retry-budget boundary across same-model retries and outer model fallback candidates. `retries` is `total - 1`; `byResult` counts only outcomes recorded in `meta.executionTrace.attempts`; `unrecorded` is the remaining dispatch count, including retry paths such as unsupported-thinking recovery that do not emit a trace outcome. This does not include provider transport-internal retries or claim to equal raw HTTP request count.
 - `toolSummary`: outer model-visible tool-call count, tool names, failures, and total tool time from the embedded run.
 
 The agent run-stat fields appear on `meta.agentMeta` in the `openclaw agent --json` response; the outer tool summary remains at `meta.toolSummary`.
@@ -101,7 +125,7 @@ From a source checkout, run the bounded evaluation matrix against any explicit m
 pnpm qa:code-mode-models -- --model ollama/qwen3.5:9b
 ```
 
-Repeat `--model` to compare models, or use `--mode`, `--task`, and `--repetitions` to narrow the default direct/automatic/forced Code Mode matrix. Each cell runs an isolated `agent exec` task and records model/provider identity, timing, result status, failure class, outer tool calls, Code Mode bridge calls, and verified output/effects.
+Repeat `--model` to compare models, or use `--mode`, `--task`, and `--repetitions` to narrow the default direct/automatic/forced Code Mode matrix. Each cell runs an isolated `agent exec` task and records model/provider identity, timing, result status, failure class, outer tool calls, detailed Code Mode host accounting, runner attempts, and verified output/effects.
 
 The output directory contains canonical QA Lab `qa-evidence.json`. `summary.json` and `results.jsonl` are supporting aggregate and per-cell artifacts; `manifest.json` records the requested matrix and source identity.
 

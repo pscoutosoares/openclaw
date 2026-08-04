@@ -194,6 +194,24 @@ describe("Code Mode bridge settlement and cancellation", () => {
     ]);
     expect(bounded.execute).toHaveBeenCalledTimes(5);
     expect(peakActive).toBe(2);
+    expect(catalogRef.current?.codeModeStats).toMatchObject({
+      controlCalls: { exec: 1, wait: 0 },
+      bridgeCalls: { callValue: 5 },
+      workerRuns: { exec: 1, resume: 2 },
+      bridgeLifecycle: {
+        queued: 5,
+        started: 5,
+        settled: 5,
+        failed: 0,
+        cancelled: 0,
+        unresolved: 0,
+      },
+      outcomes: { completed: 1, waiting: 0, failed: 0 },
+    });
+    expect(catalogRef.current?.codeModeStats?.bridgeLifecycle.queueWaitMs).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(catalogRef.current?.codeModeStats?.bridgeLifecycle.activeMs).toBeGreaterThanOrEqual(0);
     expect(testing.activeRuns.size).toBe(0);
   });
 
@@ -264,6 +282,18 @@ describe("Code Mode bridge settlement and cancellation", () => {
     expect(activeTool.execute).toHaveBeenCalledOnce();
     expect(activeAborted).toBe(true);
     expect(queuedTool.execute).not.toHaveBeenCalled();
+    expect(catalogRef.current?.codeModeStats).toMatchObject({
+      bridgeCalls: { callValue: 1 },
+      bridgeLifecycle: {
+        queued: 2,
+        started: 1,
+        settled: 1,
+        failed: 0,
+        cancelled: 2,
+        unresolved: 1,
+      },
+      outcomes: { aborted: 1 },
+    });
     expect(testing.activeRuns.size).toBe(0);
   });
 

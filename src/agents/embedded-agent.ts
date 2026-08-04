@@ -5,6 +5,7 @@ export type {
   EmbeddedAgentMeta,
   EmbeddedAgentRunMeta,
   EmbeddedAgentRunResult,
+  RunAttemptStats,
 } from "./embedded-agent-runner.js";
 export {
   abortAndDrainEmbeddedAgentRun,

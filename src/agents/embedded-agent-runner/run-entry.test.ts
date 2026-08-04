@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { createCodeModeStats } from "../code-mode-stats.js";
+import { recordRunAttemptDispatch } from "./run-attempt-stats.js";
+import { buildErrorAgentMeta } from "./run/helpers.js";
 import type { EmbeddedAgentRunResult } from "./types.js";
+import {
+  mergeAttemptRunStatsIntoAccumulator,
+  mergeUsageIntoAccumulator,
+} from "./usage-accumulator.js";
 
 type CandidateOptions = {
   allowTransientCooldownProbe?: boolean;
@@ -124,15 +131,37 @@ describe("runEmbeddedAgentEntry", () => {
       });
   });
 
-  it("keeps shared fallback and terminal behavior aligned across entry modes", async () => {
+  it("carries failed-primary telemetry into the fallback winner across entry modes", async () => {
     const { runEmbeddedAgentEntry } = await import("./run-entry.js");
-    const cfg: OpenClawConfig = {};
+    const cfg: OpenClawConfig = {
+      models: {
+        providers: {
+          "primary-provider": {
+            models: [
+              {
+                id: "primary-model",
+                cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+              },
+            ],
+          },
+          "fallback-provider": {
+            models: [
+              {
+                id: "fallback-model",
+                cost: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0 },
+              },
+            ],
+          },
+        },
+      },
+    };
     const runMode = async (behavior: "channel-delivery" | "command-rpc") => {
       const candidateCalls: Array<{
         provider: string;
         model: string;
         isFallbackRetry: boolean;
       }> = [];
+      const candidateAccumulators: unknown[] = [];
       const reconciled: Array<{ provider: string; model: string }> = [];
       const result = await runEmbeddedAgentEntry({
         selection: { cfg, provider: "primary-provider", model: "primary-model" },
@@ -166,28 +195,96 @@ describe("runEmbeddedAgentEntry", () => {
           },
         },
         runCandidate: async (provider, model, options) => {
+          const isFallbackRetry = options.isFallbackRetry;
+          candidateAccumulators.push(options.usageAccumulator);
+          recordRunAttemptDispatch(options.usageAccumulator.runAttemptCounter);
+          mergeUsageIntoAccumulator(options.usageAccumulator, {
+            input: isFallbackRetry ? 200 : 100,
+            output: isFallbackRetry ? 20 : 10,
+            total: isFallbackRetry ? 220 : 110,
+          });
+          const codeModeStats = createCodeModeStats();
+          codeModeStats.controlCalls.exec = 1;
+          codeModeStats.bridgeLifecycle.queued = isFallbackRetry ? 1 : 2;
+          codeModeStats.bridgeLifecycle.unresolved = isFallbackRetry ? 0 : 2;
+          mergeAttemptRunStatsIntoAccumulator(options.usageAccumulator, {
+            codeModeEngaged: !isFallbackRetry,
+            assistantTurns: isFallbackRetry ? 2 : 1,
+            bridgeCalls: {
+              search: isFallbackRetry ? 0 : 1,
+              describe: isFallbackRetry ? 1 : 0,
+              call: isFallbackRetry ? 2 : 1,
+            },
+            codeModeStats,
+          });
           candidateCalls.push({ provider, model, isFallbackRetry: options.isFallbackRetry });
-          return makeResult({
+          const candidateResult = makeResult({
             provider,
             model,
             classification: options.isFallbackRetry ? undefined : "empty",
           });
+          return {
+            ...candidateResult,
+            meta: {
+              ...candidateResult.meta,
+              agentMeta: buildErrorAgentMeta({
+                sessionId: "session-1",
+                provider,
+                model,
+                usageAccumulator: options.usageAccumulator,
+                lastRunPromptUsage: undefined,
+              }),
+            },
+          };
         },
       });
       await result.settleSessionOverride();
       await result.settleSessionOverride();
-      return { result, candidateCalls, reconciled };
+      return { result, candidateCalls, candidateAccumulators, reconciled };
     };
 
     const channel = await runMode("channel-delivery");
     const command = await runMode("command-rpc");
 
     expect(channel.candidateCalls).toEqual(command.candidateCalls);
+    expect(new Set(channel.candidateAccumulators).size).toBe(1);
+    expect(new Set(command.candidateAccumulators).size).toBe(1);
+    expect(channel.candidateAccumulators[0]).toMatchObject({
+      input: 300,
+      output: 30,
+      total: 330,
+      assistantTurns: 3,
+      bridgeCalls: { search: 1, describe: 1, call: 3 },
+      codeModeStats: {
+        controlCalls: { exec: 2, wait: 0 },
+        bridgeLifecycle: { queued: 3, unresolved: 0 },
+      },
+      runAttemptCounter: { total: 2 },
+    });
+    expect(command.candidateAccumulators[0]).toMatchObject({
+      input: 300,
+      assistantTurns: 3,
+      bridgeCalls: { search: 1, describe: 1, call: 3 },
+      codeModeStats: { bridgeLifecycle: { queued: 3, unresolved: 0 } },
+      runAttemptCounter: { total: 2 },
+    });
     expect(channel.result.outcome).toBe("completed");
     expect(channel.result.provider).toBe("fallback-provider");
     expect(channel.result.model).toBe("fallback-model");
     expect(channel.result.attempts).toEqual(command.result.attempts);
     expect(channel.result.terminal).toEqual(command.result.terminal);
+    expect(channel.result.result.meta.agentMeta?.costUsd).toBeCloseTo(0.00252);
+    expect(channel.result.result.meta.agentMeta).toMatchObject({
+      usage: { input: 300, output: 30, total: 330 },
+      codeModeEngaged: true,
+      assistantTurns: 3,
+      bridgeCalls: { search: 1, describe: 1, call: 3 },
+      codeModeStats: {
+        controlCalls: { exec: 2, wait: 0 },
+        bridgeLifecycle: { queued: 3, unresolved: 0 },
+      },
+      runAttempts: { total: 2, retries: 1, unrecorded: 2 },
+    });
     expect(channel.reconciled).toEqual(command.reconciled);
     expect(channel.reconciled).toEqual([
       { provider: "fallback-provider", model: "fallback-model" },
